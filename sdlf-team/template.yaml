@@ -14,6 +14,10 @@ Parameters:
     Description: Data domain name
     Type: String
     Default: "{{resolve:ssm:/SDLF/Misc/pDomain}}"
+  pCentralCatalog:
+    Description: Central Glue catalog account id
+    Type: String
+    Default: "{{resolve:ssm:/SDLF/Misc/CentralCatalog/AccountId}}"
   pAnalyticsBucket:
     Description: The analytics bucket for the solution
     Type: String
@@ -95,6 +99,7 @@ Parameters:
 Conditions:
   CreateMultipleBuckets: !Not [!Equals [!Ref pCentralBucket, !Ref pAnalyticsBucket]]
   RunInVpc: !Equals [!Ref pEnableVpc, true]
+  CentralizedCatalog: !Not [!Equals [!Ref pCentralCatalog, "000000000000"]]
 
 Globals:
   Function:
@@ -1024,6 +1029,46 @@ Resources:
         - ALL
       PermissionsWithGrantOption:
         - ALL
+
+  rCentralCatalogLakeFormationTagDatabasesPermissions:
+    Type: AWS::LakeFormation::PrincipalPermissions
+    Condition: CentralizedCatalog
+    Properties:
+      Principal:
+        DataLakePrincipalIdentifier: "{{resolve:ssm:/SDLF/Misc/CentralCatalog/AccountId}}"
+      Resource:
+        LFTagPolicy:
+          CatalogId: !Ref AWS::AccountId
+          ResourceType: DATABASE
+          Expression:
+            - TagKey: !Ref rTeamLakeFormationTag
+              TagValues:
+                - !Sub ${pTeamName}
+      Permissions:
+        - DESCRIBE
+      PermissionsWithGrantOption:
+        - DESCRIBE
+
+  rCentralCatalogLakeFormationTagTablesPermissions:
+    Type: AWS::LakeFormation::PrincipalPermissions
+    Condition: CentralizedCatalog
+    Properties:
+      Principal:
+        DataLakePrincipalIdentifier: "{{resolve:ssm:/SDLF/Misc/CentralCatalog/AccountId}}"
+      Resource:
+        LFTagPolicy:
+          CatalogId: !Ref AWS::AccountId
+          ResourceType: TABLE
+          Expression:
+            - TagKey: !Ref rTeamLakeFormationTag
+              TagValues:
+                - !Sub ${pTeamName}
+      Permissions:
+        - DESCRIBE
+        - SELECT
+      PermissionsWithGrantOption:
+        - DESCRIBE
+        - SELECT
 
   rAthenaWorkgroup:
     Type: AWS::Athena::WorkGroup
