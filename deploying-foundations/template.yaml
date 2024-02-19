@@ -218,7 +218,7 @@ Resources:
                 - aws configure set aws_session_token `jq -r '.Token' aws_credentials.json`
                 - aws configure set default.region $AWS_REGION
                 - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-                - git clone --depth 1 --branch 2.1.0 "$REPO"
+                - git clone --depth 1 --branch 2.1.1 "$REPO"
                 - cd ./aws-serverless-data-lake-framework/
                 - git config --global user.email "robot@example.com"
                 - git config --global user.name "robot"
