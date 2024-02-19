@@ -1,4 +1,4 @@
-template-file-path: ./template.yaml
+template-file-path: deploying-foundations/template.yaml
 
 tags:
     app: SDLF
