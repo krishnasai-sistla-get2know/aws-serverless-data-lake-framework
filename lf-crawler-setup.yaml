@@ -1,0 +1,544 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Account setup for Crawler using Lake Formation 
+  https://aws.amazon.com/blogs/big-data/introducing-aws-glue-crawlers-using-aws-lake-formation-permission-management/
+
+Parameters:
+  LFBusinessAnalystUserName:
+    Type: String
+    Description: IAM user name to be created as Data Analyst
+    Default: LFBusinessAnalyst
+    AllowedPattern: '[\w+=,.@-]+'
+    MinLength: "1"
+    MaxLength: "64"
+    ConstraintDescription: the user name must be between 1 and 64 characters
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: IAM User Configuration
+        Parameters:
+          - LFBusinessAnalystUserName
+
+Resources:
+  LFUsersPassword:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Secret password for Analysts
+      Name:
+        Fn::Sub: "${AWS::StackName}-LFBusinessAnalyst-credentials"
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"LFBusinessAnalyst"}'
+        GenerateStringKey: password
+        PasswordLength: 16
+        ExcludeCharacters: "\"@/\\"
+
+  LoadDataBucketRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !Ref LoadDataS3Policy
+
+  LoadDataS3Policy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: S3 Access for the Load Data Lambda
+      Path: /
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+              - !GetAtt retailBucket.Arn
+              - !Join ["", [!GetAtt retailBucket.Arn, "/*"]]
+              - "arn:aws:s3:::aws-bigdata-blog/*"
+          - Effect: "Allow"
+            Action:
+              - lakeformation:*
+            Resource: "*"
+          - Effect: "Allow"
+            Action:
+              - kms:*
+            Resource: "*"
+
+  LFDataLakeSettingsLambda:
+    Type: AWS::LakeFormation::DataLakeSettings
+    DependsOn:
+      - LoadDataBucketRole
+    Properties:
+      Admins:
+        - DataLakePrincipalIdentifier: !GetAtt "LoadDataBucketRole.Arn"
+
+  LoadDataBucketLambda:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LoadDataS3Policy
+      - AWSGlueServiceRole
+    Properties:
+      Description: Custom Resource Lambda that loads the data bucket
+      Handler: index.handler
+      Runtime: python3.7
+      Timeout: 300
+      Role: !GetAtt LoadDataBucketRole.Arn
+      Code:
+        ZipFile: |
+          import os
+          import boto3
+          import cfnresponse
+          import urllib.request
+          import time
+          def handler(event, context):
+            try:
+              customer_bucket_name = os.environ.get("CUSTOMER_DATA_BUCKET")
+              producer_account_id = boto3.client('sts').get_caller_identity().get('Account')
+              source_bucket = 'aws-bigdata-blog'
+              # copy data to customer s3 bucket
+              s3 = boto3.resource('s3')
+              customer_review_copy_source = {
+                  'Bucket': source_bucket,
+                  'Key': 'artifacts/lakeformationtbac/sample_data/part-00000-495c48e6-96d6-4650-aa65-3c36a3516ddd.c000.snappy.parquet'
+              }
+              bucket = s3.Bucket(customer_bucket_name)
+              bucket.copy(customer_review_copy_source, 'reviews/part-00000-495c48e6-96d6-4650-aa65-3c36a3516ddd.c000.snappy.parquet')
+
+              # signal
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, context.log_stream_name)
+            except Exception as err:
+              print("Error in Custom Resource", err)
+              # signal
+              cfnresponse.send(event, context, cfnresponse.FAILED, {}, context.log_stream_name)
+      Environment:
+        Variables:
+          CUSTOMER_DATA_BUCKET: !Ref retailBucket
+
+  LoadDataBucket:
+    Type: Custom::LoadDataBucket
+    Properties:
+      ServiceToken: !GetAtt LoadDataBucketLambda.Arn
+
+  glueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Description: Glue Database for Lake Formation Cross Account
+        Name: !Sub "lfcrawlerdb${AWS::AccountId}"
+        Parameters: { "CreateTableDefaultPermissions": "" }
+
+  retailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      BucketName: !Sub "lf-datalake-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  AWSGlueServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: IAM Role to crawl the files in the Amazon S3 data lake
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - glue.amazonaws.com
+                - lakeformation.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - !Ref CrawlerPolicy
+
+  CrawlerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Crawler policy to access the source s3 bucket
+      Path: /
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - "lakeformation:GetDataAccess"
+            Resource: "*"
+
+  GlueCrawlerRetail:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Role: !GetAtt AWSGlueServiceRole.Arn
+      Name: !Sub "lfcrawler-${AWS::AccountId}"
+      DatabaseName: !Ref glueDatabase
+      Targets:
+        S3Targets:
+          - Path: !Ref retailBucket
+
+  AthenaLogsBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "lf-crawler-${AWS::AccountId}-${AWS::Region}-athena-logs"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  AthenaWorkgroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: "lfconsumer-primary-workgroup"
+      State: ENABLED
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub "s3://${AthenaLogsBucket}/"
+
+  ConsumerAnalystGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:ListMultipartUploadParts
+                  - s3:AbortMultipartUpload
+                  - s3:CreateBucket
+                  - s3:PutObject
+                  - s3:PutBucketPublicAccessBlock
+                Effect: Allow
+                Resource:
+                  - !Sub "arn:aws:s3:::${AthenaLogsBucket}/"
+                  - !Sub "arn:aws:s3:::${AthenaLogsBucket}/*"
+              - Action:
+                  - s3:GetBucketLocation
+                  - s3:ListAllMyBuckets
+                  - Lakeformation:GetDataAccess
+                  - athena:ListWorkGroups
+                  - glue:Get*
+                  - glue:List*
+                  - glue:Search*
+                Effect: Allow
+                Resource: "*"
+              - Action:
+                  - athena:BatchGetNamedQuery
+                  - athena:BatchGetQueryExecution
+                  - athena:CreateNamedQuery
+                  - athena:CreatePreparedStatement
+                  - athena:DeleteNamedQuery
+                  - athena:DeletePreparedStatement
+                  - athena:GetNamedQuery
+                  - athena:GetPreparedStatement
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:GetQueryResultsStream
+                  - athena:GetWorkGroup
+                  - athena:ListNamedQueries
+                  - athena:ListPreparedStatements
+                  - athena:ListQueryExecutions
+                  - athena:StartQueryExecution
+                  - athena:StopQueryExecution
+                  - athena:UpdatePreparedStatement
+                Effect: Allow
+                Resource: !Sub "arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkgroup}"
+            Version: "2012-10-17"
+          PolicyName: Policy
+
+  LFBusinessAnalystUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref LFBusinessAnalystUserName
+      LoginProfile:
+        Password:
+          Fn::Sub: "{{resolve:secretsmanager:${LFUsersPassword}::password}}"
+        PasswordResetRequired: false
+      Groups:
+        - !Ref ConsumerAnalystGroup
+
+  LFRegisterLocationServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lakeformation.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  S3DataLakePolicy:
+    DependsOn: LFRegisterLocationServiceRole
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "S3DataLakePolicy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - lakeformation:RegisterResource
+            Resource:
+              - !Sub arn:aws:s3:::lf-datalake-${AWS::AccountId}-${AWS::Region}
+          - Effect: "Allow"
+            Action:
+              - s3:*
+            Resource:
+              - !Sub arn:aws:s3:::lf-datalake-${AWS::AccountId}-${AWS::Region}/*
+              - !Sub arn:aws:s3:::lf-datalake-${AWS::AccountId}-${AWS::Region}
+      Roles:
+        - !Ref LFRegisterLocationServiceRole
+
+  LFDatabasePermission:
+    DependsOn: glueDatabase
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !GetAtt "AWSGlueServiceRole.Arn"
+      Permissions:
+        - ALL
+      Resource:
+        DatabaseResource:
+          Name: !Ref glueDatabase
+
+  LFDataLakeLocationRetail:
+    Type: AWS::LakeFormation::Resource
+    Properties:
+      ResourceArn: !Sub arn:aws:s3:::lf-datalake-${AWS::AccountId}-${AWS::Region}
+      RoleArn: !GetAtt "LFRegisterLocationServiceRole.Arn"
+      UseServiceLinkedRole: false
+
+  RetailDataLocationPermission:
+    DependsOn: LFDataLakeLocationRetail
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !GetAtt "AWSGlueServiceRole.Arn"
+      Permissions:
+        - DATA_LOCATION_ACCESS
+      Resource:
+        DataLocationResource:
+          S3Resource: !Sub arn:aws:s3:::lf-datalake-${AWS::AccountId}-${AWS::Region}
+
+  CleanUpBucketonDelete:
+    DependsOn: CleanUpBucketonDeleteLambda
+    Type: "Custom::emptybucket"
+    Properties:
+      ServiceToken: !GetAtt
+        - CleanUpBucketonDeleteLambda
+        - Arn
+      inputBucketName: !Ref retailBucket
+
+  CleanUpAthenaBucketonDelete:
+    DependsOn: CleanUpBucketonDeleteLambda
+    Type: "Custom::emptyathenabucket"
+    Properties:
+      ServiceToken: !GetAtt
+        - CleanUpBucketonDeleteLambda
+        - Arn
+      inputBucketName: !Ref AthenaLogsBucket
+
+  CleanUpBucketonDeleteLambda:
+    DependsOn:
+      - CleanUpBucketonDeleteLambdaRole
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: Empty bucket on delete
+      Handler: index.lambda_handler
+      Role: !GetAtt
+        - CleanUpBucketonDeleteLambdaRole
+        - Arn
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: !Join
+          - |+
+
+          - - import json
+            - import boto3
+            - import urllib3
+            - ""
+            - "def empty_bucket(bucket_name):"
+            - '    print("Attempting to empty the bucket {0}".format(bucket_name))'
+            - "    s3_client = boto3.client('s3')"
+            - "    s3 = boto3.resource('s3')"
+            - ""
+            - "    try:"
+            - "        bucket = s3.Bucket(bucket_name).load()"
+            - "    except ClientError:"
+            - '        print("Bucket {0} does not exist".format(bucket_name))'
+            - "        return"
+            - "    # Confirm if versioning is enabled"
+            - "    version_status = s3_client.get_bucket_versioning(Bucket=bucket_name)"
+            - "    status = version_status.get('Status','')"
+            - "    if status == 'Enabled':"
+            - "        version_status = s3_client.put_bucket_versioning(Bucket=bucket_name,"
+            - "                                                   VersioningConfiguration={'Status': 'Suspended'})"
+            - "    version_paginator = s3_client.get_paginator('list_object_versions')"
+            - "    version_iterator = version_paginator.paginate("
+            - "        Bucket=bucket_name"
+            - "    )"
+            - ""
+            - "    for page in version_iterator:"
+            - "        print(page)"
+            - "        if 'DeleteMarkers' in page:"
+            - "            delete_markers = page['DeleteMarkers']"
+            - "            if delete_markers is not None:"
+            - "                for delete_marker in delete_markers:"
+            - "                    key = delete_marker['Key']"
+            - "                    versionId = delete_marker['VersionId']"
+            - "                    s3_client.delete_object(Bucket=bucket_name, Key=key, VersionId=versionId)"
+            - "        if 'Versions' in page and page['Versions'] is not None:"
+            - "            versions = page['Versions']"
+            - "            for version in versions:"
+            - "                print(version)"
+            - "                key = version['Key']"
+            - "                versionId = version['VersionId']"
+            - "                s3_client.delete_object(Bucket=bucket_name, Key=key, VersionId=versionId)"
+            - "    object_paginator = s3_client.get_paginator('list_objects_v2')"
+            - "    object_iterator = object_paginator.paginate("
+            - "        Bucket=bucket_name"
+            - "    )"
+            - "    for page in object_iterator:"
+            - "        if 'Contents' in page:"
+            - "            for content in page['Contents']:"
+            - "                key = content['Key']"
+            - "                s3_client.delete_object(Bucket=bucket_name, Key=content['Key'])"
+            - '    print("Successfully emptied the bucket {0}".format(bucket_name))'
+            - ""
+            - ""
+            - ""
+            - "def lambda_handler(event, context):"
+            - "    try:"
+            - "        bucket = event['ResourceProperties']['inputBucketName']"
+            - "        if event['RequestType'] == 'Delete':"
+            - "            empty_bucket(bucket)"
+            - '        sendResponse(event, context, "SUCCESS")'
+            - "    except Exception as e:"
+            - "        print(e)"
+            - '        sendResponse(event, context, "FAILED")'
+            - ""
+            - "def sendResponse(event, context, status):"
+            - "    http = urllib3.PoolManager()"
+            - "    response_body = {'Status': status,"
+            - "                     'Reason': 'Log stream name: ' + context.log_stream_name,"
+            - "                     'PhysicalResourceId': context.log_stream_name,"
+            - "                     'StackId': event['StackId'],"
+            - "                     'RequestId': event['RequestId'],"
+            - "                     'LogicalResourceId': event['LogicalResourceId'],"
+            - '                     ''Data'': json.loads("{}")}'
+            - "    http.request('PUT', event['ResponseURL'], body=json.dumps(response_body))"
+
+  CleanUpBucketonDeleteLambdaRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: !Sub "CleanUpBucketonDeleteLambdaPolicy-${AWS::StackName}"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:List*
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:PutBucketVersioning
+                Resource:
+                  - !GetAtt
+                    - AthenaLogsBucket
+                    - Arn
+                  - !Join
+                    - ""
+                    - - !GetAtt
+                        - AthenaLogsBucket
+                        - Arn
+                      - /
+                  - !Join
+                    - ""
+                    - - !GetAtt
+                        - AthenaLogsBucket
+                        - Arn
+                      - /*
+                  - !GetAtt
+                    - retailBucket
+                    - Arn
+                  - !Join
+                    - ""
+                    - - !GetAtt
+                        - retailBucket
+                        - Arn
+                      - /
+                  - !Join
+                    - ""
+                    - - !GetAtt
+                        - retailBucket
+                        - Arn
+                      - /*
+              - Effect: Deny
+                Action:
+                  - "s3:DeleteBucket"
+                Resource: "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+Outputs:
+  DataLakeBucket:
+    Description: Data Lake Bucket Name
+    Value: !Ref retailBucket
+  LFBusinessAnalystUserName:
+    Description: User ID for Data Analyst User
+    Value: !Ref LFBusinessAnalystUserName
+  GlueCrawlerName:
+    Description: Glue Crawler Name
+    Value: !Ref GlueCrawlerRetail
+  Databasename:
+    Description: Glue Database Name
+    Value: !Ref glueDatabase
+  LFBusinessAnalystUserCredentials:
+    Description: "Credential for LFBusinessAnalystUser"
+    Value:
+      Fn::Sub: https://${AWS::Region}.console.aws.amazon.com/secretsmanager/secret?name=${AWS::StackName}-LFBusinessAnalyst-credentials
+  ConsoleIAMLoginUrl:
+    Description: Console IAM Login URL
+    Value:
+      Fn::Join:
+        - ""
+        - - "https://"
+          - Ref: AWS::AccountId
+          - ".signin.aws.amazon.com/console"
