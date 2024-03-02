@@ -22,7 +22,7 @@ def parse_s3_event(s3_event):
         "key": unquote_plus(s3_event["s3"]["object"]["key"]),
         "size": s3_event["s3"]["object"]["size"],
         "last_modified_date": s3_event["eventTime"].split(".")[0] + "+00:00",
-        "timestamp": int(round(datetime.utcnow().timestamp() * 1000, 0)),
+        "timestamp": int(round(datetime.now(datetime.UTC).timestamp() * 1000, 0)),
     }
 
 
@@ -68,10 +68,7 @@ def lambda_handler(event, context):
             else:
                 item = parse_s3_event(message)
                 item["id"] = f"s3://{item['bucket']}/{item['key']}"
-                if os.environ["NUM_BUCKETS"] == "1":
-                    item["stage"] = item["key"].split("/")[0]
-                else:
-                    item["stage"] = item["bucket"].split("-")[-1]
+                item["stage"] = item["bucket"].split("-")[-1]
                 put_item(catalog_table, item, "id")
 
     except Exception as e:

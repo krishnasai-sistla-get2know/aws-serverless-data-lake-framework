@@ -110,11 +110,11 @@ Resources:
       Role: !GetAtt rPullRequestLambdaRole.Arn
       TracingConfig:
         Mode: Active
-      Runtime: python3.11
+      Runtime: python3.12
       Timeout: 10
       Code:
         ZipFile: |
-          import datetime
+          from datetime import datetime
           import boto3
           codecommit_client = boto3.client('codecommit')
           def lambda_handler(event, context):
@@ -128,7 +128,7 @@ Resources:
                     repositoryName = repository_name,
                     beforeCommitId = source_commit,
                     afterCommitId = destination_commit,
-                    content = '**Validation Build started at {}. Please wait until validation results received.**'.format(datetime.datetime.utcnow().time())
+                    content = '**Validation Build started at {}. Please wait until validation results received.**'.format(datetime.now(datetime.UTC).time())
                   )
 
   rPullRequestLambdaLogGroup:
@@ -202,7 +202,7 @@ Resources:
           phases:
             install:
               runtime-versions:
-                  python: 3.11
+                  python: 3.12
             pre_build:
               on-failure: ABORT
               commands:
@@ -361,7 +361,7 @@ Resources:
       Role: !GetAtt rCodeBuildResultFunctionLambdaRole.Arn
       TracingConfig:
         Mode: Active
-      Runtime: python3.11
+      Runtime: python3.12
       Timeout: 10
       Code:
         ZipFile: |
