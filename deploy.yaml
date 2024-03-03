@@ -1,2 +1,2 @@
-# template-file-path: lf-crawler-setup.yaml
-template-file-path: empty.template
+# template-file-path: ./lf-crawler-setup.yaml
+template-file-path: ./empty.template
