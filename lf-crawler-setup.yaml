@@ -93,7 +93,7 @@ Resources:
     Properties:
       Description: Custom Resource Lambda that loads the data bucket
       Handler: index.handler
-      Runtime: python3.7
+      Runtime: python3.12
       Timeout: 300
       Role: !GetAtt LoadDataBucketRole.Arn
       Code:
@@ -373,7 +373,7 @@ Resources:
       Role: !GetAtt
         - CleanUpBucketonDeleteLambdaRole
         - Arn
-      Runtime: python3.7
+      Runtime: python3.12
       Timeout: 60
       Code:
         ZipFile: !Join
