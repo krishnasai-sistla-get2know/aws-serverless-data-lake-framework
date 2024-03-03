@@ -29,7 +29,7 @@ in each group is included.
 
 
 use schema snowflake_sample_data.tpch_sf1; 
--- or tpch_sf100, tpch_sf1000
+-- or tpch_sf100, tpcds_sf10tcl
 
 SELECT
 l_returnflag,
@@ -55,3 +55,123 @@ ORDER BY
 l_returnflag,
 l_linestatus;
 
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/call_center/ 
+from snowflake_sample_data.tpcds_sf10tcl.call_center
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/catalog_page/ 
+from snowflake_sample_data.tpcds_sf10tcl.catalog_page
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/catalog_returns/ 
+from snowflake_sample_data.tpcds_sf10tcl.catalog_returns
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/catalog_sales/ 
+from snowflake_sample_data.tpcds_sf10tcl.catalog_sales
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/customer/ 
+from snowflake_sample_data.tpcds_sf10tcl.customer
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/customer_address/ 
+from snowflake_sample_data.tpcds_sf10tcl.customer_address
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/customer_demographics/ 
+from snowflake_sample_data.tpcds_sf10tcl.customer_demographics
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/date_dim/
+from snowflake_sample_data.tpcds_sf10tcl.date_dim
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/household_demographics/
+from snowflake_sample_data.tpcds_sf10tcl.household_demographics
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/income_band/
+from snowflake_sample_data.tpcds_sf10tcl.income_band
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/inventory/
+from snowflake_sample_data.tpcds_sf10tcl.inventory
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/item/
+from snowflake_sample_data.tpcds_sf10tcl.item
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/promotion/
+from snowflake_sample_data.tpcds_sf10tcl.promotion
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/reason/
+from snowflake_sample_data.tpcds_sf10tcl.reason
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/ship_mode/
+from snowflake_sample_data.tpcds_sf10tcl.ship_mode
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/store/
+from snowflake_sample_data.tpcds_sf10tcl.store
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/store_returns/
+from snowflake_sample_data.tpcds_sf10tcl.store_returns
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/store_sales/
+from snowflake_sample_data.tpcds_sf10tcl.store_sales
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/time_dim/
+from snowflake_sample_data.tpcds_sf10tcl.time_dim
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/warehouse/
+from snowflake_sample_data.tpcds_sf10tcl.warehouse
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/web_page/
+from snowflake_sample_data.tpcds_sf10tcl.web_page
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/web_returns/
+from snowflake_sample_data.tpcds_sf10tcl.web_returns
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/web_sales/
+from snowflake_sample_data.tpcds_sf10tcl.web_sales
+storage_integration = s3_int;
+
+COPY INTO s3://snowflake-ftwtyci-is41662/tpcds_sf10tcl/web_site/
+from snowflake_sample_data.tpcds_sf10tcl.web_site
+storage_integration = s3_int;
+
+call_center
+catalog_page
+catalog_returns
+catalog_sales
+customer
+customer_address
+customer_demographics
+date_dim
+household_demographics
+income_band
+inventory
+item
+promotion
+reason
+ship_mode
+store
+store_returns
+store_sales
+time_dim
+warehouse
+web_page
+web_returns
+web_sales
+web_site
